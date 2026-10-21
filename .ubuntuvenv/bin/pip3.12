@@ -1,0 +1,8 @@
+#!/mnt/mydata/附件库/项目开发（2026年09月10日）/android自动化/拍照上传/.ubuntuvenv/bin/python3
+# -*- coding: utf-8 -*-
+import re
+import sys
+from pip._internal.cli.main import main
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(main())

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">拍照上传</string>
+    <string name="status_starting">正在启动</string>
+    <string name="status_opening_camera">正在打开相机</string>
+    <string name="status_no_permission">没有相机权限，无法拍照</string>
+    <string name="status_no_media_permission">没有相册读取权限，无法使用相册最新照片</string>
+    <string name="status_camera_failed">打开相机失败：%1$s</string>
+    <string name="status_camera_not_ready">相机还没准备好</string>
+    <string name="status_capturing">正在拍照</string>
+    <string name="status_capture_failed">拍照失败：%1$s</string>
+    <string name="status_uploading">正在上传</string>
+    <string name="status_uploaded">已上传到 %1$s</string>
+    <string name="status_upload_failed">上传失败：%1$s</string>
+    <string name="status_no_photo">还没有可上传的照片</string>
+    <string name="status_no_server">请填写服务器地址</string>
+    <string name="status_ready">相机已就绪</string>
+    <string name="hint_server">上传地址，例如 http://服务器局域网IP:8080/upload</string>
+    <string name="hint_dir">子目录，留空则保存到服务器启动时指定的目录</string>
+    <string name="action_retake">再拍一张</string>
+    <string name="action_retry">重新上传</string>
+    <string name="action_settings">设置</string>
+    <string name="status_settings_saved">设置已保存</string>
+</resources>
