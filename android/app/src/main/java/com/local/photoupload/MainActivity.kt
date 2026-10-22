@@ -40,6 +40,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService
     private var imageCapture: ImageCapture? = null
+    private var cameraProvider: ProcessCameraProvider? = null
+    private var isBackCamera = true
     private val captureInFlight = AtomicBoolean(false)
     private var lastPhoto: File? = null
     private var serverUrl = ""
@@ -76,6 +78,7 @@ class MainActivity : AppCompatActivity() {
         }
         binding.retakeButton.setOnClickListener { takePhoto() }
         binding.retryUploadButton.setOnClickListener { uploadLast() }
+        binding.switchCameraButton.setOnClickListener { switchCamera() }
         binding.settingsButton.setOnClickListener { showSettings() }
         setupFloatingButtons()
 
@@ -282,32 +285,73 @@ class MainActivity : AppCompatActivity() {
                 setStatus(getString(R.string.status_camera_failed, error.message ?: ""))
                 return@addListener
             }
-            val selector = when {
-                provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
-                provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
-                else -> {
-                    setStatus(getString(R.string.status_camera_failed, "没有可用相机"))
-                    return@addListener
-                }
-            }
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(binding.previewView.surfaceProvider)
-            }
-            val capture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                .setFlashMode(ImageCapture.FLASH_MODE_OFF)
-                .build()
-            imageCapture = capture
-            try {
-                provider.unbindAll()
-                provider.bindToLifecycle(this, selector, preview, capture)
-            } catch (error: Exception) {
-                Log.e(TAG, "bind camera failed", error)
-                setStatus(getString(R.string.status_camera_failed, error.message ?: ""))
+            val backCameraAvailable = provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+            val selector = if (backCameraAvailable) {
+                CameraSelector.DEFAULT_BACK_CAMERA
+            } else if (provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
+                CameraSelector.DEFAULT_FRONT_CAMERA
+            } else {
+                setStatus(getString(R.string.status_camera_failed, "没有可用相机"))
                 return@addListener
             }
-            setStatus(getString(R.string.status_ready))
+            bindCamera(provider, selector, backCameraAvailable)
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun switchCamera() {
+        if (captureInFlight.get()) return
+        val provider = cameraProvider ?: run {
+            setStatus(getString(R.string.status_camera_not_ready))
+            return
+        }
+        val targetIsBackCamera = !isBackCamera
+        val targetSelector = if (targetIsBackCamera) {
+            CameraSelector.DEFAULT_BACK_CAMERA
+        } else {
+            CameraSelector.DEFAULT_FRONT_CAMERA
+        }
+        if (!provider.hasCamera(targetSelector)) {
+            setStatus(getString(R.string.status_camera_unavailable))
+            return
+        }
+        bindCamera(provider, targetSelector, targetIsBackCamera)
+    }
+
+    private fun bindCamera(
+        provider: ProcessCameraProvider,
+        selector: CameraSelector,
+        backCamera: Boolean
+    ) {
+        val preview = Preview.Builder().build().also {
+            it.setSurfaceProvider(binding.previewView.surfaceProvider)
+        }
+        val capture = ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setFlashMode(ImageCapture.FLASH_MODE_OFF)
+            .build()
+        try {
+            provider.unbindAll()
+            imageCapture = null
+            binding.switchCameraButton.isEnabled = false
+            provider.bindToLifecycle(this, selector, preview, capture)
+            cameraProvider = provider
+            isBackCamera = backCamera
+            imageCapture = capture
+            binding.switchCameraButton.isEnabled = hasOtherCamera(provider, backCamera)
+            setStatus(getString(R.string.status_ready))
+        } catch (error: Exception) {
+            Log.e(TAG, "bind camera failed", error)
+            setStatus(getString(R.string.status_camera_failed, error.message ?: ""))
+        }
+    }
+
+    private fun hasOtherCamera(provider: ProcessCameraProvider, backCamera: Boolean): Boolean {
+        val otherSelector = if (backCamera) {
+            CameraSelector.DEFAULT_FRONT_CAMERA
+        } else {
+            CameraSelector.DEFAULT_BACK_CAMERA
+        }
+        return provider.hasCamera(otherSelector)
     }
 
     private fun showSettings() {
@@ -422,6 +466,8 @@ class MainActivity : AppCompatActivity() {
     private fun setBusy(busy: Boolean) {
         binding.retakeButton.isEnabled = !busy
         binding.retryUploadButton.isEnabled = !busy
+        binding.switchCameraButton.isEnabled =
+            !busy && cameraProvider?.let { hasOtherCamera(it, isBackCamera) } == true
     }
 
     private fun setStatus(text: String) {

@@ -5,6 +5,7 @@
 ## 功能
 
 - CameraX 实时取景、拍照并上传 JPEG，也可重试上传最近一张照片。
+- 拍照使用圆形快门按钮，并可在预览中切换前后摄像头。
 - 可在应用设置中填写上传地址和可选子目录。
 - 同一个 APK 可作为平板接收端，支持局域网和 Tailscale 网络。
 - 平板接收端使用前台服务运行，默认监听 TCP `8080` 端口。
@@ -68,6 +69,44 @@ python3 server/upload_server.py --dir /path/to/photos --host 0.0.0.0 --port 8080
 ```
 
 脚本会显示 Ubuntu 主机的局域网上传地址。如果检测到已通过 ADB 连接的 Android 设备，还会在应用未安装时构建并安装 APK，然后打开拍照页面并填入该地址；没有连接设备时，服务仍会启动，可在手机上手动填写地址。
+
+### Windows 接收服务
+
+Windows 启动脚本使用项目根目录下 `.winvenv` 虚拟环境中的 Python（`.winvenv\Scripts\python.exe`），不依赖系统 PATH。请先创建该环境。然后在 PowerShell 中从项目目录运行（如果系统执行策略阻止脚本，可用此命令绕过当前进程的策略，不会修改系统设置）：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\startuploadserver.ps1
+```
+
+也可以指定照片保存目录：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\startuploadserver.ps1 -SaveDir "D:\Photos"
+```
+
+脚本会在后台启动 Python 接收服务，日志写入 `server\server.log`；错误输出写入 `server\server-error.log`。如检测到已连接的 ADB 设备，脚本会尝试启动已安装的应用；如需自动构建 APK，还需要项目中有 `gradlew.bat` 或系统已安装 Gradle。
+
+如果环境目录还叫 `.winvevn`（字母顺序与 `.winvenv` 不同），脚本会暂时兼容并发出提示；建议将环境目录改名为 `.winvenv`。
+
+设置为当前 Windows 用户登录后自动启动（照片默认保存到项目的 `uploads` 目录）：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\startuploadserver.ps1 -InstallStartupTask
+```
+
+自定义目录也可用于自动启动：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\startuploadserver.ps1 -SaveDir "D:\Photos" -InstallStartupTask
+```
+
+自动启动任务在用户登录时运行，不需要管理员权限。移除任务：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\startuploadserver.ps1 -UninstallStartupTask
+```
+
+首次使用时，如果 Windows 防火墙拦截连接，请允许 Python 或 TCP `8080` 入站访问；只应在可信局域网中开放此端口。
 
 ## 构建 APK
 
