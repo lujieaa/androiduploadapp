@@ -4,10 +4,18 @@ import android.Manifest
 import android.os.Build
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.util.Log
+import android.view.Gravity
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -23,9 +31,12 @@ import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
 
+    private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService
     private var imageCapture: ImageCapture? = null
@@ -66,12 +77,28 @@ class MainActivity : AppCompatActivity() {
         binding.retakeButton.setOnClickListener { takePhoto() }
         binding.retryUploadButton.setOnClickListener { uploadLast() }
         binding.settingsButton.setOnClickListener { showSettings() }
+        setupFloatingButtons()
 
         if (hasCameraPermission() && hasMediaReadPermission()) {
             startCamera()
         } else {
             requestPermissions.launch(requiredPermissions())
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            if (event.repeatCount == 0) takePhoto()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -114,6 +141,135 @@ class MainActivity : AppCompatActivity() {
 
     private fun requiredPermissions(): Array<String> =
         arrayOf(Manifest.permission.CAMERA) + mediaReadPermissions()
+
+    private fun setupFloatingButtons() {
+        val root = binding.root
+        root.post {
+            val mainButton = binding.retakeButton
+            val retryButton = binding.retryUploadButton
+            val maxTop = (binding.bottomPanel.top - mainButton.height - dp(12)).coerceAtLeast(0)
+            val mainTop = maxTop
+            val retryTop = (mainTop - retryButton.height - dp(8)).coerceAtLeast(0)
+            restoreButtonPosition(
+                mainButton,
+                "capture",
+                (root.width - mainButton.width) / 2,
+                mainTop
+            )
+            restoreButtonPosition(
+                retryButton,
+                "retry",
+                (root.width - retryButton.width) / 2,
+                retryTop
+            )
+        }
+        setupDraggableButton(binding.retakeButton, "capture")
+        setupDraggableButton(binding.retryUploadButton, "retry")
+    }
+
+    private fun restoreButtonPosition(button: Button, key: String, defaultLeft: Int, defaultTop: Int) {
+        val root = binding.root
+        val prefs = getSharedPreferences(PREF_FLOATING_BUTTONS, MODE_PRIVATE)
+        val maxLeft = (root.width - button.width).coerceAtLeast(0)
+        val maxTop = (root.height - button.height).coerceAtLeast(0)
+        val left = if (prefs.contains("$key.x")) {
+            (prefs.getFloat("$key.x", 0f) * maxLeft).roundToInt()
+        } else {
+            defaultLeft
+        }
+        val top = if (prefs.contains("$key.y")) {
+            (prefs.getFloat("$key.y", 0f) * maxTop).roundToInt()
+        } else {
+            defaultTop
+        }
+        setButtonPosition(button, left, top)
+    }
+
+    private fun setupDraggableButton(button: Button, key: String) {
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        var downRawX = 0f
+        var downRawY = 0f
+        var startLeft = 0
+        var startTop = 0
+        var dragging = false
+        val startLongPress = Runnable {
+            dragging = true
+            button.isPressed = false
+        }
+
+        button.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val params = button.layoutParams as FrameLayout.LayoutParams
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startLeft = params.leftMargin
+                    startTop = params.topMargin
+                    dragging = false
+                    button.isPressed = true
+                    mainHandler.postDelayed(
+                        startLongPress,
+                        ViewConfiguration.getLongPressTimeout().toLong()
+                    )
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!dragging &&
+                        (abs(event.rawX - downRawX) > touchSlop ||
+                            abs(event.rawY - downRawY) > touchSlop)
+                    ) {
+                        mainHandler.removeCallbacks(startLongPress)
+                    }
+                    if (dragging) {
+                        val left = startLeft + (event.rawX - downRawX).roundToInt()
+                        val top = startTop + (event.rawY - downRawY).roundToInt()
+                        setButtonPosition(button, left, top)
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    mainHandler.removeCallbacks(startLongPress)
+                    button.isPressed = false
+                    if (dragging) {
+                        saveButtonPosition(button, key)
+                    } else {
+                        button.performClick()
+                    }
+                    dragging = false
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    mainHandler.removeCallbacks(startLongPress)
+                    button.isPressed = false
+                    dragging = false
+                }
+            }
+            true
+        }
+    }
+
+    private fun setButtonPosition(button: Button, left: Int, top: Int) {
+        val root = binding.root
+        val maxLeft = (root.width - button.width).coerceAtLeast(0)
+        val maxTop = (root.height - button.height).coerceAtLeast(0)
+        val params = button.layoutParams as FrameLayout.LayoutParams
+        params.gravity = Gravity.TOP or Gravity.START
+        params.leftMargin = left.coerceIn(0, maxLeft)
+        params.topMargin = top.coerceIn(0, maxTop)
+        button.layoutParams = params
+    }
+
+    private fun saveButtonPosition(button: Button, key: String) {
+        val root = binding.root
+        val params = button.layoutParams as FrameLayout.LayoutParams
+        val maxLeft = (root.width - button.width).coerceAtLeast(0)
+        val maxTop = (root.height - button.height).coerceAtLeast(0)
+        getSharedPreferences(PREF_FLOATING_BUTTONS, MODE_PRIVATE)
+            .edit()
+            .putFloat("$key.x", if (maxLeft == 0) 0f else params.leftMargin.toFloat() / maxLeft)
+            .putFloat("$key.y", if (maxTop == 0) 0f else params.topMargin.toFloat() / maxTop)
+            .apply()
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).roundToInt()
 
     private fun startCamera() {
         setStatus(getString(R.string.status_opening_camera))
@@ -179,6 +335,9 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.action_settings)
             .setView(fields)
             .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton(R.string.action_receive_mode) { _, _ ->
+                startActivity(android.content.Intent(this, ServerActivity::class.java))
+            }
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 serverUrl = serverInput.text.toString().trim()
                 saveDirectory = directoryInput.text.toString().trim()
@@ -271,6 +430,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "PhotoUpload"
+        private const val PREF_FLOATING_BUTTONS = "floating_buttons"
         const val EXTRA_SERVER_URL = "server_url"
     }
 }
